@@ -61,8 +61,46 @@
 				margin: 4px;
 				font-size: 80%;
 				border-radius: 6rem;
-				background-color: rgb(200, 206, 237);
-				color: rgb(37, 44, 137);
+			}
+
+			.cell-dimension>span[data-color="0"] {
+				background-color: #EDEEFD;
+				color: #3943D6;
+			}
+
+			.cell-dimension>span[data-color="1"] {
+				background-color: #DBFAF0;
+				color: #1D5946;
+			}
+
+			.cell-dimension>span[data-color="2"] {
+				background-color: #B6E1E0;
+				color: #235548;
+			}
+
+			.cell-dimension>span[data-color="3"] {
+				background-color: #C8CEED;
+				color: #252C89;
+			}
+
+			.cell-dimension>span[data-color="4"] {
+				background-color: #D1C0E8;
+				color: #300091;
+			}
+
+			.cell-dimension>span[data-color="5"] {
+				background-color: #C2DFFA;
+				color: #1E4DA2;
+			}
+
+			.cell-dimension>span[data-color="6"] {
+				background-color: #D3E1EE;
+				color: #113776;
+			}
+
+			.cell-dimension>span[data-color="7"] {
+				background-color: #D8DCE8;
+				color: #1F2451;
 			}
 
 			.cell-plain>input {
@@ -93,15 +131,11 @@
 		<script type="text/javascript">
 			(function () {
 				// Cell rendering functions by type
-				function createBooleanValue(value, update) {
+				function createBooleanValue(initial, update) {
 					let checkbox = document.createElement('input');
 
-					checkbox.addEventListener('change', (e) => {
-						value = checkbox.checked;
-
-						update(value)
-					});
-					checkbox.checked = value;
+					checkbox.addEventListener('change', (e) => update(checkbox.checked));
+					checkbox.checked = initial;
 					checkbox.type = 'checkbox';
 
 					let container = document.createElement('div');
@@ -112,10 +146,11 @@
 					return container;
 				}
 
-				function createDimensionValue(value, update) {
+				function createDimensionValue(initial, update) {
 					let chip = document.createElement('span');
 
-					chip.innerText = value;
+					chip.dataset.color = Array.from(initial).reduce((a, c) => a * 31 + c.charCodeAt(0), 0) % 8; // Basic pseudo-hash to get deterministic color palette indices
+					chip.innerText = initial;
 
 					let container = document.createElement('div');
 
@@ -125,33 +160,31 @@
 					return container;
 				}
 
-				function createPlainValue(value, update) {
+				function createPlainValue(initial, update) {
 					let container = document.createElement('div');
 
 					container.className = 'cell cell-plain';
 
-					function createDisplay() {
+					function createDisplay(value) {
 						let element = document.createElement('span');
 
 						element.innerText = value;
-						element.addEventListener('dblclick', () => replaceWith(createInput()));
+						element.addEventListener('dblclick', () => replaceWith(createInput(value)));
 
 						return element;
 					}
 
-					function createInput() {
+					function createInput(value) {
 						let element = document.createElement('input');
 
 						element.value = value;
 						element.addEventListener('keyup', (e) => {
 							if (e.key === 'Enter' || e.key === 'Escape') {
 								if (e.key === 'Enter') {
-									value = element.value;
-
-									update(value);
+									update(element.value);
 								}
 
-								replaceWith(createDisplay());
+								replaceWith(createDisplay(element.value));
 
 								return false;
 							}
@@ -168,7 +201,7 @@
 						container.appendChild(element);
 					}
 
-					replaceWith(createDisplay());
+					replaceWith(createDisplay(initial));
 
 					return container;
 				}
@@ -180,15 +213,7 @@
 
 				function quadTreeInsert(node, x, y, value) {
 					if (node === undefined) {
-						return {
-							ne: undefined,
-							nw: undefined,
-							se: undefined,
-							sw: undefined,
-							value: value,
-							x: x,
-							y: y
-						};
+						return { value: value, x: x, y: y };
 					}
 
 					if (x < node.x) {
@@ -212,9 +237,7 @@
 				function quadTreeSearch(node, x, y) {
 					if (node === undefined) {
 						return undefined;
-					}
-
-					if (x < node.x) {
+					} else if (x < node.x) {
 						if (y < node.y) {
 							return quadTreeSearch(node.nw, x, y);
 						} else {
@@ -319,23 +342,17 @@
 				}
 
 				// Initialize pivot table and attach event listeners
-				let properties = Object.entries(window).map(e => e[0]);
+				let cellDefinitions = [
+					() => ({ constructor: createPlainValue, value: Math.floor(Math.random() * 100) }),
+					() => ({ constructor: createPlainValue, value: Math.floor(Math.random() * 100) }),
+					() => ({ constructor: createDimensionValue, value: cellLabels[Math.floor(Math.random() * cellLabels.length)] }),
+					() => ({ constructor: createBooleanValue, value: Math.random() < 0.5 })
+				];
+
+				let cellLabels = ['Apple', 'Banana', 'Cherry', 'Durian', 'Elderberry', 'Fig', 'Grape', 'Honeyberry', 'Jujube', 'Kumquat'];
 
 				function createArray(length, generator) {
 					return new Array(length).fill(undefined).map((_, index) => generator(index));
-				}
-
-				function createCell(columnIndex) {
-					switch (columnIndex % 4) {
-						case 2:
-							return { constructor: createDimensionValue, value: properties[Math.floor(Math.random() * properties.length)] };
-
-						case 3:
-							return { constructor: createBooleanValue, value: Math.random() < 0.5 };
-
-						default:
-							return { constructor: createPlainValue, value: Math.floor(Math.random() * 100) };
-					}
 				}
 
 				function createTable() {
@@ -349,7 +366,7 @@
 					return {
 						pivot1: createArray(nbColumns, (index) => ({ label: 'Country #' + index, width: 60 + ~~(Math.random() * 120) })),
 						pivot2: createArray(nbRows, (index) => ({ label: 'Product #' + index, height: 34 })),
-						data: createArray(nbColumns * nbRows, (index) => createCell(index % nbRows))
+						data: createArray(nbColumns * nbRows, (index) => cellDefinitions[(index % nbRows) % cellDefinitions.length]())
 					};
 				}
 
