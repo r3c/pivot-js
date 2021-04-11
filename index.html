@@ -61,9 +61,9 @@
 	<body>
 		<div class="control">
 			Initialize a pivot table of
-			<input id="nbColumns" type="number" value="100" />
+			<input id="nbColumns" type="number" value="40" />
 			columns by
-			<input id="nbRows" type="number" value="100" /> rows
+			<input id="nbRows" type="number" value="1000" /> rows
 			<input id="initialize" type="button" value="Go" />
 		</div>
 		<div id="pivotView" class="pivotView">
@@ -190,83 +190,109 @@
 				var setupNbColumns = document.getElementById('nbColumns');
 				var setupNbRows = document.getElementById('nbRows');
 
-				// Grid constants
-				// FIXME: support variable size pivots
-				var cellHeightPx = 22;
-				var cellWidthPx = 64;
+				function createPivot(view, grid) {
+					// Grid constants
+					// FIXME: support variable size pivots
+					var cellHeightPx = 22;
+					var cellWidthPx = 64;
 
-				// Grid variables
-				var pivot1 = [];
-				var pivot2 = [];
-				var data = [];
-				var root = undefined;
+					// Grid variables
+					var cellCache = {};
+					var pivot1 = [];
+					var pivot2 = [];
+					var data = [];
+					var root = undefined;
 
-				// Initialize grid
-				function pivotInitialize() {
-					pivot1 = new Array(Math.max(Math.min(setupNbColumns.value, 1000), 0)).map((value, index) => 'Country #' + index);
-					pivot2 = new Array(Math.max(Math.min(setupNbRows.value, 1000), 0)).map((value, index) => 'Product #' + index);
-					data = new Array(pivot1.length * pivot2.length);
-					root = undefined;
+					// Initialize grid
+					function pivotInitialize() {
+						pivot1 = new Array(Math.max(Math.min(setupNbColumns.value, 1000), 0)).map((value, index) => 'Country #' + index);
+						pivot2 = new Array(Math.max(Math.min(setupNbRows.value, 1000), 0)).map((value, index) => 'Product #' + index);
+						data = new Array(pivot1.length * pivot2.length);
+						root = undefined;
 
-					for (var i = 0; i < pivot1.length; ++i) {
-						for (var j = 0; j < pivot2.length; ++j) {
-							let x = i * cellWidthPx;
-							let y = j * cellHeightPx;
+						for (var i = 0; i < pivot1.length; ++i) {
+							for (var j = 0; j < pivot2.length; ++j) {
+								let x = i * cellWidthPx;
+								let y = j * cellHeightPx;
 
-							data[i + j * pivot1.length] = ~~(Math.random() * 100);
-							root = quadTreeInsert(root, x, y, [i, j]);
+								data[i + j * pivot1.length] = ~~(Math.random() * 100);
+								root = quadTreeInsert(root, x, y, [i, j]);
+							}
 						}
+
+						root = quadTreeBalance(root);
+
+						// FIXME: support variable size pivots
+						grid.style.width = cellWidthPx * pivot1.length;
+						grid.style.height = cellHeightPx * pivot2.length;
+
+						pivotRender();
 					}
 
-					root = quadTreeBalance(root);
+					// Render grid
+					function pivotRender() {
+						let node = quadTreeSearch(root, view.scrollLeft, view.scrollTop);
 
-					pivotGrid.style.width = cellWidthPx * pivot1.length;
-					pivotGrid.style.height = cellHeightPx * pivot2.length;
-
-					pivotRender();
-				}
-
-				// Render grid
-				function pivotRender() {
-					let node = quadTreeSearch(root, pivotView.scrollLeft, pivotView.scrollTop);
-
-					if (node === undefined) {
-						return;
-					}
-
-					domRemoveAllChildren(pivotGrid);
-
-					let iStart = node.value[0];
-					let iStop = pivot1.length;
-					let jStart = node.value[1];
-					let jStop = pivot2.length;
-					let xStart = node.x;
-					let xStop = pivotView.scrollLeft + pivotView.clientWidth;
-					let yStart = node.y;
-					let yStop = pivotView.scrollTop + pivotView.clientHeight;
-
-					for (let j = jStart, y = yStart; j < jStop && y < yStop; j += 1, y += cellHeightPx) {
-						for (let i = iStart, x = xStart; i < iStop && x < xStop; i += 1, x += cellWidthPx) {
-							let value = data[i + j * pivot1.length];
-							let cell = document.createElement('div');
-
-							cell.style.left = x;
-							cell.style.top = y;
-							cell.style.height = cellHeightPx + 'px';
-							cell.style.width = cellWidthPx + 'px';
-							cell.appendChild(createCellValue(value, (v) => data[i + j * pivot1.length] = v));
-
-							pivotGrid.appendChild(cell);
+						if (node === undefined) {
+							return;
 						}
+
+						let cellCacheNext = {};
+						let iStart = node.value[0];
+						let iStop = pivot1.length;
+						let jStart = node.value[1];
+						let jStop = pivot2.length;
+						let xStart = node.x;
+						let xStop = view.scrollLeft + view.clientWidth;
+						let yStart = node.y;
+						let yStop = view.scrollTop + view.clientHeight;
+
+						for (let j = jStart, y = yStart; j < jStop && y < yStop; j += 1, y += cellHeightPx) {
+							for (let i = iStart, x = xStart; i < iStop && x < xStop; i += 1, x += cellWidthPx) {
+								let index = i + j * pivot1.length;
+								let value = data[index];
+								let cell;
+
+								if (cellCache[index]) {
+									cell = cellCache[index];
+
+									delete cellCache[index];
+								}
+								else {
+									cell = document.createElement('div')
+									cell.appendChild(createCellValue(value, (v) => data[index] = v));
+									cell.style.left = x;
+									cell.style.top = y;
+									cell.style.height = cellHeightPx + 'px';
+									cell.style.width = cellWidthPx + 'px';
+								}
+
+								cellCacheNext[index] = cell;
+
+								grid.appendChild(cell);
+							}
+						}
+
+						// Remove stale elements from cache and update it
+						for (let index in cellCache) {
+							grid.removeChild(cellCache[index]);
+						}
+
+						cellCache = cellCacheNext;
 					}
+
+					domRemoveAllChildren(grid);
+					pivotInitialize();
+
+					return pivotRender;
 				}
 
 				// Attach initialization function to button
-				setupButton.addEventListener('click', pivotInitialize);
-				pivotView.addEventListener('scroll', pivotRender);
-				window.addEventListener('resize', pivotRender);
+				let render = createPivot(pivotView, pivotGrid);
 
-				pivotInitialize();
+				setupButton.addEventListener('click', () => render = createPivot(pivotView, pivotGrid));
+				pivotView.addEventListener('scroll', () => render());
+				window.addEventListener('resize', () => render());
 			})();
 		</script>
 	</body>
