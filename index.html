@@ -1,0 +1,273 @@
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<style type="text/css">
+			/* Page styles */
+			body {
+				display: flex;
+				flex-direction: column;
+				align-items: stretch;
+				height: 100%;
+				box-sizing: border-box;
+				padding: 16px;
+				margin: 0;
+				font: 14px serif;
+			}
+
+			.control {
+				padding: 0 0 8px 0;
+			}
+
+			/* Pivot table styles */
+			.pivotGrid {
+				position: relative;
+			}
+
+			.pivotGrid>div {
+				position: absolute;
+				box-sizing: border-box;
+				border-left: 1px solid grey;
+				border-top: 1px solid grey;
+			}
+
+			.pivotView {
+				flex: 1;
+				overflow: scroll;
+				border: 1px solid black;
+			}
+
+			/* Custom cell styles */
+			.cell {
+				display: flex;
+			}
+
+			.cell>input {
+				width: 100%;
+			}
+
+			.cell>span {
+				display: flex;
+				flex: 1;
+				align-items: center;
+				justify-content: end;
+				padding: 2px 4px;
+			}
+
+			.cell>span:hover {
+				background: yellow;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="control">
+			Initialize a pivot table of
+			<input id="nbColumns" type="number" value="100" />
+			columns by
+			<input id="nbRows" type="number" value="100" /> rows
+			<input id="initialize" type="button" value="Go" />
+		</div>
+		<div id="pivotView" class="pivotView">
+			<div id="pivotGrid" class="pivotGrid"></div>
+		</div>
+		<script type="text/javascript">
+			(function () {
+				function createCellValue(value, update) {
+					let container = document.createElement('div');
+
+					function createDisplay() {
+						let element = document.createElement('span');
+
+						element.innerText = value;
+						element.addEventListener('dblclick', () => {
+							replaceWith(createInput());
+						});
+
+						return element;
+					}
+
+					function createInput() {
+						let element = document.createElement('input');
+
+						element.value = value;
+						element.addEventListener('keyup', (e) => {
+							if (e.key === 'Enter') {
+								value = element.value;
+
+								update(value);
+
+								replaceWith(createDisplay());
+							} else if (e.key === 'Escape') {
+								replaceWith(createDisplay());
+							} else {
+								return true;
+							}
+
+							return false;
+						});
+
+						return element;
+					}
+
+					function replaceWith(element) {
+						domRemoveAllChildren(container);
+
+						container.appendChild(element);
+					}
+
+					container.className = 'cell';
+
+					replaceWith(createDisplay());
+
+					return container;
+				}
+
+				function domRemoveAllChildren(element) {
+					for (let child = element.lastElementChild; child; child = element.lastElementChild) {
+						element.removeChild(child);
+					}
+				}
+
+				function quadTreeBalance(node) {
+					return node; // FIXME: not implemented
+				}
+
+				function quadTreeInsert(node, x, y, value) {
+					if (node === undefined) {
+						return {
+							ne: undefined,
+							nw: undefined,
+							se: undefined,
+							sw: undefined,
+							value: value,
+							x: x,
+							y: y
+						};
+					}
+
+					if (x < node.x) {
+						if (y < node.y) {
+							node.nw = quadTreeInsert(node.nw, x, y, value);
+						} else {
+							node.sw = quadTreeInsert(node.sw, x, y, value);
+						}
+					}
+					else {
+						if (y < node.y) {
+							node.ne = quadTreeInsert(node.ne, x, y, value);
+						} else {
+							node.se = quadTreeInsert(node.se, x, y, value);
+						}
+					}
+
+					return node;
+				}
+
+				function quadTreeSearch(node, x, y) {
+					if (node === undefined) {
+						return undefined;
+					}
+
+					if (x < node.x) {
+						if (y < node.y) {
+							return quadTreeSearch(node.nw, x, y);
+						} else {
+							return quadTreeSearch(node.sw, x, y);
+						}
+					}
+					else {
+						if (y < node.y) {
+							return quadTreeSearch(node.ne, x, y);
+						} else {
+							return quadTreeSearch(node.se, x, y) || node;
+						}
+					}
+				}
+
+				// Get reference to grid elements
+				var pivotGrid = document.getElementById('pivotGrid');
+				var pivotView = document.getElementById('pivotView');
+				var setupButton = document.getElementById('initialize');
+				var setupNbColumns = document.getElementById('nbColumns');
+				var setupNbRows = document.getElementById('nbRows');
+
+				// Grid constants
+				// FIXME: support variable size pivots
+				var cellHeightPx = 22;
+				var cellWidthPx = 64;
+
+				// Grid variables
+				var pivot1 = [];
+				var pivot2 = [];
+				var data = [];
+				var root = undefined;
+
+				// Initialize grid
+				function pivotInitialize() {
+					pivot1 = new Array(Math.max(Math.min(setupNbColumns.value, 1000), 0)).map((value, index) => 'Country #' + index);
+					pivot2 = new Array(Math.max(Math.min(setupNbRows.value, 1000), 0)).map((value, index) => 'Product #' + index);
+					data = new Array(pivot1.length * pivot2.length);
+					root = undefined;
+
+					for (var i = 0; i < pivot1.length; ++i) {
+						for (var j = 0; j < pivot2.length; ++j) {
+							let x = i * cellWidthPx;
+							let y = j * cellHeightPx;
+
+							data[i + j * pivot1.length] = ~~(Math.random() * 100);
+							root = quadTreeInsert(root, x, y, [i, j]);
+						}
+					}
+
+					root = quadTreeBalance(root);
+
+					pivotGrid.style.width = cellWidthPx * pivot1.length;
+					pivotGrid.style.height = cellHeightPx * pivot2.length;
+
+					pivotRender();
+				}
+
+				// Render grid
+				function pivotRender() {
+					let node = quadTreeSearch(root, pivotView.scrollLeft, pivotView.scrollTop);
+
+					if (node === undefined) {
+						return;
+					}
+
+					domRemoveAllChildren(pivotGrid);
+
+					let iStart = node.value[0];
+					let iStop = pivot1.length;
+					let jStart = node.value[1];
+					let jStop = pivot2.length;
+					let xStart = node.x;
+					let xStop = pivotView.scrollLeft + pivotView.clientWidth;
+					let yStart = node.y;
+					let yStop = pivotView.scrollTop + pivotView.clientHeight;
+
+					for (let j = jStart, y = yStart; j < jStop && y < yStop; j += 1, y += cellHeightPx) {
+						for (let i = iStart, x = xStart; i < iStop && x < xStop; i += 1, x += cellWidthPx) {
+							let value = data[i + j * pivot1.length];
+							let cell = document.createElement('div');
+
+							cell.style.left = x;
+							cell.style.top = y;
+							cell.style.height = cellHeightPx + 'px';
+							cell.style.width = cellWidthPx + 'px';
+							cell.appendChild(createCellValue(value, (v) => data[i + j * pivot1.length] = v));
+
+							pivotGrid.appendChild(cell);
+						}
+					}
+				}
+
+				// Attach initialization function to button
+				setupButton.addEventListener('click', pivotInitialize);
+				pivotView.addEventListener('scroll', pivotRender);
+				window.addEventListener('resize', pivotRender);
+
+				pivotInitialize();
+			})();
+		</script>
+	</body>
+</html>
