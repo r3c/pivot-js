@@ -62,9 +62,8 @@
 	<body>
 		<div class="control">
 			Initialize a pivot table of
-			<input id="nbColumns" type="number" value="40" />
-			columns by
-			<input id="nbRows" type="number" value="1000" /> rows
+			<input id="nbColumns" type="number" value="40" min="0" max="100" /> columns by
+			<input id="nbRows" type="number" value="1000" min="0" max="10000" /> rows
 			<input id="initialize" type="button" value="Go" />
 		</div>
 		<div id="pivotView" class="pivotView">
@@ -75,13 +74,13 @@
 				function createCellValue(value, update) {
 					let container = document.createElement('div');
 
+					container.className = 'cell';
+
 					function createDisplay() {
 						let element = document.createElement('span');
 
 						element.innerText = value;
-						element.addEventListener('dblclick', () => {
-							replaceWith(createInput());
-						});
+						element.addEventListener('dblclick', () => replaceWith(createInput()));
 
 						return element;
 					}
@@ -91,41 +90,33 @@
 
 						element.value = value;
 						element.addEventListener('keyup', (e) => {
-							if (e.key === 'Enter') {
-								value = element.value;
+							if (e.key === 'Enter' || e.key === 'Escape') {
+								if (e.key === 'Enter') {
+									value = element.value;
 
-								update(value);
+									update(value);
+								}
 
 								replaceWith(createDisplay());
-							} else if (e.key === 'Escape') {
-								replaceWith(createDisplay());
-							} else {
-								return true;
+
+								return false;
 							}
-
-							return false;
 						});
 
 						return element;
 					}
 
 					function replaceWith(element) {
-						domRemoveAllChildren(container);
+						if (container.firstElementChild) {
+							container.removeChild(container.firstElementChild);
+						}
 
 						container.appendChild(element);
 					}
 
-					container.className = 'cell';
-
 					replaceWith(createDisplay());
 
 					return container;
-				}
-
-				function domRemoveAllChildren(element) {
-					for (let child = element.lastElementChild; child; child = element.lastElementChild) {
-						element.removeChild(child);
-					}
 				}
 
 				function quadTreeBalance(node) {
@@ -185,125 +176,118 @@
 				}
 
 				function pivotCreate(view, grid, table) {
-					// Initialize grid
-					function pivotInitialize() {
-						let iStop = table.pivot1.length;
-						let jStop = table.pivot2.length;
-						let root = undefined;
-						let y = 0;
+					// Initialize quad tree with pivot positions
+					let iStop = table.pivot1.length;
+					let jStop = table.pivot2.length;
+					let root = undefined;
+					let y = 0;
 
-						for (var j = 0; j < jStop; ++j) {
-							let x = 0;
+					for (let j = 0; j < jStop; ++j) {
+						let x = 0;
 
-							for (var i = 0; i < iStop; ++i) {
-								root = quadTreeInsert(root, x, y, [i, j]);
+						for (let i = 0; i < iStop; ++i) {
+							root = quadTreeInsert(root, x, y, [i, j]);
 
-								x += table.pivot1[i].width;
-							}
-
-							y += table.pivot2[j].height;
+							x += table.pivot1[i].width;
 						}
 
-						root = quadTreeBalance(root);
-
-						grid.style.width = table.pivot1.reduce((a, p) => a + p.width, 0);
-						grid.style.height = table.pivot2.reduce((a, p) => a + p.height, 0);
-
-						let cache = {};
-
-						pivotRender(root, cache);
-
-						return { cache: cache, root: root };
+						y += table.pivot2[j].height;
 					}
 
-					// Render grid
-					function pivotRender(root, cellCache) {
-						let node = quadTreeSearch(root, view.scrollLeft, view.scrollTop);
+					root = quadTreeBalance(root);
 
-						if (node === undefined) {
-							return;
-						}
-
-						let cellCacheNext = {};
-						let data = table.data;
-						let iStart = node.value[0];
-						let iStop = table.pivot1.length;
-						let jStart = node.value[1];
-						let jStop = table.pivot2.length;
-						let xStart = node.x;
-						let xStop = view.scrollLeft + view.clientWidth;
-						let yStart = node.y;
-						let yStop = view.scrollTop + view.clientHeight;
-
-						for (let j = jStart, y = yStart; j < jStop && y < yStop; y += table.pivot2[j].height, j += 1) {
-							for (let i = iStart, x = xStart; i < iStop && x < xStop; x += table.pivot1[i].width, i += 1) {
-								let index = i + j * iStop;
-								let value = data[index].value;
-								let cell;
-
-								if (cellCache[index]) {
-									cell = cellCache[index];
-
-									delete cellCache[index];
-								}
-								else {
-									cell = document.createElement('div')
-									cell.appendChild(createCellValue(value, (v) => data[index].value = v));
-									cell.style.left = x;
-									cell.style.top = y;
-									cell.style.height = table.pivot2[j].height + 'px';
-									cell.style.width = table.pivot1[i].width + 'px';
-								}
-
-								cellCacheNext[index] = cell;
-
-								grid.appendChild(cell);
-							}
-						}
-
-						// Remove stale elements from cache and update it
-						for (let index in cellCache) {
-							grid.removeChild(cellCache[index]);
-						}
-
-						return cellCacheNext;
+					// Clear and resize grid
+					for (let child = grid.lastElementChild; child; child = grid.lastElementChild) {
+						grid.removeChild(child);
 					}
 
-					domRemoveAllChildren(grid);
+					grid.style.width = table.pivot1.reduce((a, p) => a + p.width, 0);
+					grid.style.height = table.pivot2.reduce((a, p) => a + p.height, 0);
 
-					let pivot = pivotInitialize();
+					// Create cache and run first rendering
+					let cache = pivotRender(view, grid, table, root, {});
 
-					return () => pivot.cache = pivotRender(pivot.root, pivot.cache);
+					return () => cache = pivotRender(view, grid, table, root, cache);
 				}
 
-				// Create table data
-				// Get reference to grid elements
-				var pivotGrid = document.getElementById('pivotGrid');
-				var pivotView = document.getElementById('pivotView');
-				var setupButton = document.getElementById('initialize');
-				var setupNbColumns = document.getElementById('nbColumns');
-				var setupNbRows = document.getElementById('nbRows');
+				function pivotRender(view, grid, table, root, cellCache) {
+					let node = quadTreeSearch(root, view.scrollLeft, view.scrollTop);
 
+					if (node === undefined) {
+						return;
+					}
+
+					let cellCacheNext = {};
+					let data = table.data;
+					let iStart = node.value[0];
+					let iStop = table.pivot1.length;
+					let jStart = node.value[1];
+					let jStop = table.pivot2.length;
+					let xStart = node.x;
+					let xStop = view.scrollLeft + view.clientWidth;
+					let yStart = node.y;
+					let yStop = view.scrollTop + view.clientHeight;
+
+					for (let j = jStart, y = yStart; j < jStop && y < yStop; y += table.pivot2[j].height, j += 1) {
+						for (let i = iStart, x = xStart; i < iStop && x < xStop; x += table.pivot1[i].width, i += 1) {
+							let index = i + j * iStop;
+							let value = data[index].value;
+							let cell;
+
+							if (cellCache[index]) {
+								cell = cellCache[index];
+
+								delete cellCache[index];
+							}
+							else {
+								cell = document.createElement('div')
+								cell.appendChild(createCellValue(value, (v) => data[index].value = v));
+								cell.style.left = x;
+								cell.style.top = y;
+								cell.style.height = table.pivot2[j].height + 'px';
+								cell.style.width = table.pivot1[i].width + 'px';
+							}
+
+							cellCacheNext[index] = cell;
+
+							grid.appendChild(cell);
+						}
+					}
+
+					// Remove stale elements from cache and return updated one
+					for (let index in cellCache) {
+						grid.removeChild(cellCache[index]);
+					}
+
+					return cellCacheNext;
+				}
+
+				// Initialize pivot table and attach event listeners
 				function createArray(length, generator) {
 					return new Array(length).fill(undefined).map((_, index) => generator(index));
 				}
 
 				function createTable() {
-					let pivot1 = createArray(Math.max(Math.min(setupNbColumns.value, 1000), 0), (index) => ({ label: 'Country #' + index, width: 60 + ~~(Math.random() * 120) }));
-					let pivot2 = createArray(Math.max(Math.min(setupNbRows.value, 1000), 0), (index) => ({ label: 'Product #' + index, height: 30 }));
-					let data = createArray(pivot1.length * pivot2.length, () => ({ value: ~~(Math.random() * 100) }));
+					let nbColumns = Math.max(Math.min(document.getElementById('nbColumns').value, 100), 0);
+					let nbRows = Math.max(Math.min(document.getElementById('nbRows').value, 10000), 0);
+
+					if (nbColumns * nbRows > 100000 && !confirm('Generating data is going to take a while and hang your browser for a few minutes, are you sure?')) {
+						return { pivot1: [], pivot2: [], data: [] };
+					}
 
 					return {
-						pivot1: pivot1,
-						pivot2: pivot2,
-						data: data
+						pivot1: createArray(nbColumns, (index) => ({ label: 'Country #' + index, width: 60 + ~~(Math.random() * 120) })),
+						pivot2: createArray(nbRows, (index) => ({ label: 'Product #' + index, height: 30 })),
+						data: createArray(nbColumns * nbRows, () => ({ value: ~~(Math.random() * 100) }))
 					};
 				}
 
 				// Attach initialization function to button
+				let pivotGrid = document.getElementById('pivotGrid');
+				let pivotView = document.getElementById('pivotView');
 				let render = pivotCreate(pivotView, pivotGrid, createTable());
 
-				setupButton.addEventListener('click', () => render = pivotCreate(pivotView, pivotGrid, createTable()));
+				document.getElementById('initialize').addEventListener('click', () => render = pivotCreate(pivotView, pivotGrid, createTable()));
 				pivotView.addEventListener('scroll', () => render());
 				window.addEventListener('resize', () => render());
 			})();
