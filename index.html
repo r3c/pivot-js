@@ -11,7 +11,7 @@
 				box-sizing: border-box;
 				padding: 16px;
 				margin: 0;
-				font: 14px serif;
+				font: 16px serif;
 			}
 
 			.control {
@@ -39,6 +39,7 @@
 			/* Custom cell styles */
 			.cell {
 				display: flex;
+				height: 100%;
 			}
 
 			.cell>input {
@@ -183,54 +184,40 @@
 					}
 				}
 
-				// Get reference to grid elements
-				var pivotGrid = document.getElementById('pivotGrid');
-				var pivotView = document.getElementById('pivotView');
-				var setupButton = document.getElementById('initialize');
-				var setupNbColumns = document.getElementById('nbColumns');
-				var setupNbRows = document.getElementById('nbRows');
-
-				function createPivot(view, grid) {
-					// Grid constants
-					// FIXME: support variable size pivots
-					var cellHeightPx = 22;
-					var cellWidthPx = 64;
-
-					// Grid variables
-					var cellCache = {};
-					var pivot1 = [];
-					var pivot2 = [];
-					var data = [];
-					var root = undefined;
-
+				function pivotCreate(view, grid, table) {
 					// Initialize grid
 					function pivotInitialize() {
-						pivot1 = new Array(Math.max(Math.min(setupNbColumns.value, 1000), 0)).map((value, index) => 'Country #' + index);
-						pivot2 = new Array(Math.max(Math.min(setupNbRows.value, 1000), 0)).map((value, index) => 'Product #' + index);
-						data = new Array(pivot1.length * pivot2.length);
-						root = undefined;
+						let iStop = table.pivot1.length;
+						let jStop = table.pivot2.length;
+						let root = undefined;
+						let y = 0;
 
-						for (var i = 0; i < pivot1.length; ++i) {
-							for (var j = 0; j < pivot2.length; ++j) {
-								let x = i * cellWidthPx;
-								let y = j * cellHeightPx;
+						for (var j = 0; j < jStop; ++j) {
+							let x = 0;
 
-								data[i + j * pivot1.length] = ~~(Math.random() * 100);
+							for (var i = 0; i < iStop; ++i) {
 								root = quadTreeInsert(root, x, y, [i, j]);
+
+								x += table.pivot1[i].width;
 							}
+
+							y += table.pivot2[j].height;
 						}
 
 						root = quadTreeBalance(root);
 
-						// FIXME: support variable size pivots
-						grid.style.width = cellWidthPx * pivot1.length;
-						grid.style.height = cellHeightPx * pivot2.length;
+						grid.style.width = table.pivot1.reduce((a, p) => a + p.width, 0);
+						grid.style.height = table.pivot2.reduce((a, p) => a + p.height, 0);
 
-						pivotRender();
+						let cache = {};
+
+						pivotRender(root, cache);
+
+						return { cache: cache, root: root };
 					}
 
 					// Render grid
-					function pivotRender() {
+					function pivotRender(root, cellCache) {
 						let node = quadTreeSearch(root, view.scrollLeft, view.scrollTop);
 
 						if (node === undefined) {
@@ -238,19 +225,20 @@
 						}
 
 						let cellCacheNext = {};
+						let data = table.data;
 						let iStart = node.value[0];
-						let iStop = pivot1.length;
+						let iStop = table.pivot1.length;
 						let jStart = node.value[1];
-						let jStop = pivot2.length;
+						let jStop = table.pivot2.length;
 						let xStart = node.x;
 						let xStop = view.scrollLeft + view.clientWidth;
 						let yStart = node.y;
 						let yStop = view.scrollTop + view.clientHeight;
 
-						for (let j = jStart, y = yStart; j < jStop && y < yStop; j += 1, y += cellHeightPx) {
-							for (let i = iStart, x = xStart; i < iStop && x < xStop; i += 1, x += cellWidthPx) {
-								let index = i + j * pivot1.length;
-								let value = data[index];
+						for (let j = jStart, y = yStart; j < jStop && y < yStop; y += table.pivot2[j].height, j += 1) {
+							for (let i = iStart, x = xStart; i < iStop && x < xStop; x += table.pivot1[i].width, i += 1) {
+								let index = i + j * iStop;
+								let value = data[index].value;
 								let cell;
 
 								if (cellCache[index]) {
@@ -260,11 +248,11 @@
 								}
 								else {
 									cell = document.createElement('div')
-									cell.appendChild(createCellValue(value, (v) => data[index] = v));
+									cell.appendChild(createCellValue(value, (v) => data[index].value = v));
 									cell.style.left = x;
 									cell.style.top = y;
-									cell.style.height = cellHeightPx + 'px';
-									cell.style.width = cellWidthPx + 'px';
+									cell.style.height = table.pivot2[j].height + 'px';
+									cell.style.width = table.pivot1[i].width + 'px';
 								}
 
 								cellCacheNext[index] = cell;
@@ -278,19 +266,44 @@
 							grid.removeChild(cellCache[index]);
 						}
 
-						cellCache = cellCacheNext;
+						return cellCacheNext;
 					}
 
 					domRemoveAllChildren(grid);
-					pivotInitialize();
 
-					return pivotRender;
+					let pivot = pivotInitialize();
+
+					return () => pivot.cache = pivotRender(pivot.root, pivot.cache);
+				}
+
+				// Create table data
+				// Get reference to grid elements
+				var pivotGrid = document.getElementById('pivotGrid');
+				var pivotView = document.getElementById('pivotView');
+				var setupButton = document.getElementById('initialize');
+				var setupNbColumns = document.getElementById('nbColumns');
+				var setupNbRows = document.getElementById('nbRows');
+
+				function createArray(length, generator) {
+					return new Array(length).fill(undefined).map((_, index) => generator(index));
+				}
+
+				function createTable() {
+					let pivot1 = createArray(Math.max(Math.min(setupNbColumns.value, 1000), 0), (index) => ({ label: 'Country #' + index, width: 60 + ~~(Math.random() * 120) }));
+					let pivot2 = createArray(Math.max(Math.min(setupNbRows.value, 1000), 0), (index) => ({ label: 'Product #' + index, height: 30 }));
+					let data = createArray(pivot1.length * pivot2.length, () => ({ value: ~~(Math.random() * 100) }));
+
+					return {
+						pivot1: pivot1,
+						pivot2: pivot2,
+						data: data
+					};
 				}
 
 				// Attach initialization function to button
-				let render = createPivot(pivotView, pivotGrid);
+				let render = pivotCreate(pivotView, pivotGrid, createTable());
 
-				setupButton.addEventListener('click', () => render = createPivot(pivotView, pivotGrid));
+				setupButton.addEventListener('click', () => render = pivotCreate(pivotView, pivotGrid, createTable()));
 				pivotView.addEventListener('scroll', () => render());
 				window.addEventListener('resize', () => render());
 			})();
