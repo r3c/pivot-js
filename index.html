@@ -39,23 +39,44 @@
 			/* Custom cell styles */
 			.cell {
 				display: flex;
+				flex-direction: column;
 				height: 100%;
+				overflow: hidden;
 			}
 
-			.cell>input {
-				width: 100%;
+			.cell:hover {
+				background: rgb(255, 248, 215);
 			}
 
-			.cell>span {
-				display: flex;
+			.cell-boolean>input {
 				flex: 1;
+			}
+
+			.cell-dimension>span {
+				flex: 1;
+				display: flex;
+				align-items: center;
+				align-self: flex-end;
+				padding: 4px 8px;
+				margin: 4px;
+				font-size: 80%;
+				border-radius: 6rem;
+				background-color: rgb(200, 206, 237);
+				color: rgb(37, 44, 137);
+			}
+
+			.cell-plain>input {
+				flex: 1;
+				padding: 2px 4px;
+				margin: 4px;
+			}
+
+			.cell-plain>span {
+				flex: 1;
+				display: flex;
 				align-items: center;
 				justify-content: end;
-				padding: 2px 4px;
-			}
-
-			.cell>span:hover {
-				background: yellow;
+				padding: 0 4px;
 			}
 		</style>
 	</head>
@@ -71,10 +92,43 @@
 		</div>
 		<script type="text/javascript">
 			(function () {
-				function createCellValue(value, update) {
+				// Cell rendering functions by type
+				function createBooleanValue(value, update) {
+					let checkbox = document.createElement('input');
+
+					checkbox.addEventListener('change', (e) => {
+						value = checkbox.checked;
+
+						update(value)
+					});
+					checkbox.checked = value;
+					checkbox.type = 'checkbox';
+
 					let container = document.createElement('div');
 
-					container.className = 'cell';
+					container.appendChild(checkbox);
+					container.className = 'cell cell-boolean';
+
+					return container;
+				}
+
+				function createDimensionValue(value, update) {
+					let chip = document.createElement('span');
+
+					chip.innerText = value;
+
+					let container = document.createElement('div');
+
+					container.appendChild(chip);
+					container.className = 'cell cell-dimension';
+
+					return container;
+				}
+
+				function createPlainValue(value, update) {
+					let container = document.createElement('div');
+
+					container.className = 'cell cell-plain';
 
 					function createDisplay() {
 						let element = document.createElement('span');
@@ -119,6 +173,7 @@
 					return container;
 				}
 
+				// Basic quad tree implementation
 				function quadTreeBalance(node) {
 					return node; // FIXME: not implemented
 				}
@@ -175,6 +230,7 @@
 					}
 				}
 
+				// Pivot table definition
 				function pivotCreate(view, grid, table) {
 					// Initialize quad tree with pivot positions
 					let iStop = table.pivot1.length;
@@ -241,7 +297,7 @@
 							}
 							else {
 								cell = document.createElement('div')
-								cell.appendChild(createCellValue(value, (v) => data[index].value = v));
+								cell.appendChild(data[index].constructor(value, (v) => data[index].value = v));
 								cell.style.left = x;
 								cell.style.top = y;
 								cell.style.height = table.pivot2[j].height + 'px';
@@ -263,8 +319,23 @@
 				}
 
 				// Initialize pivot table and attach event listeners
+				let properties = Object.entries(window).map(e => e[0]);
+
 				function createArray(length, generator) {
 					return new Array(length).fill(undefined).map((_, index) => generator(index));
+				}
+
+				function createCell(columnIndex) {
+					switch (columnIndex % 4) {
+						case 2:
+							return { constructor: createDimensionValue, value: properties[Math.floor(Math.random() * properties.length)] };
+
+						case 3:
+							return { constructor: createBooleanValue, value: Math.random() < 0.5 };
+
+						default:
+							return { constructor: createPlainValue, value: Math.floor(Math.random() * 100) };
+					}
 				}
 
 				function createTable() {
@@ -277,8 +348,8 @@
 
 					return {
 						pivot1: createArray(nbColumns, (index) => ({ label: 'Country #' + index, width: 60 + ~~(Math.random() * 120) })),
-						pivot2: createArray(nbRows, (index) => ({ label: 'Product #' + index, height: 30 })),
-						data: createArray(nbColumns * nbRows, () => ({ value: ~~(Math.random() * 100) }))
+						pivot2: createArray(nbRows, (index) => ({ label: 'Product #' + index, height: 34 })),
+						data: createArray(nbColumns * nbRows, (index) => createCell(index % nbRows))
 					};
 				}
 
