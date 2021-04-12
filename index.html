@@ -321,12 +321,13 @@
 				// Initialize pivot table and attach event listeners
 				let cellDefinitions = [
 					() => ({ constructor: createPlainValue, value: Math.floor(Math.random() * 100) }),
-					() => ({ constructor: createPlainValue, value: Math.floor(Math.random() * 100) }),
-					() => ({ constructor: createDimensionValue, value: cellLabels[Math.floor(Math.random() * cellLabels.length)] }),
+					() => ({ constructor: createPlainValue, value: cellTexts[Math.floor(Math.random() * cellTexts.length)] }),
+					() => ({ constructor: createDimensionValue, value: cellModalities[Math.floor(Math.random() * cellModalities.length)] }),
 					() => ({ constructor: createBooleanValue, value: Math.random() < 0.5 })
 				];
 
-				let cellLabels = ['Apple', 'Banana', 'Cherry', 'Durian', 'Elderberry', 'Fig', 'Grape', 'Honeyberry', 'Jujube', 'Kumquat'];
+				let cellModalities = ['Apple', 'Banana', 'Cherry', 'Durian', 'Elderberry', 'Fig', 'Grape', 'Honeyberry', 'Jujube', 'Kumquat'];
+				let cellTexts = ['Alice', 'Bob', 'Charlie', 'Dan', 'Eve', 'Frank', 'Grace', 'Heidi', 'Ivan', 'Judy', 'Ken'];
 
 				function createArray(length, generator) {
 					return new Array(length).fill(undefined).map((_, index) => generator(index));
