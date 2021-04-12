@@ -125,7 +125,7 @@
 		<div class="control">
 			Initialize a pivot table of
 			<input id="nbColumns" type="number" value="40" min="0" max="100" /> columns by
-			<input id="nbRows" type="number" value="1000" min="0" max="10000" /> rows
+			<input id="nbRows" type="number" value="1000" min="0" max="50000" /> rows
 			<input id="initialize" type="button" value="Go" />
 		</div>
 		<div id="pivotView" class="pivotView">
@@ -133,6 +133,25 @@
 		</div>
 		<script type="text/javascript">
 			(function () {
+				// Loose (find lower or equal) binary search function
+				function binarySearch(array, value) {
+					return binarySearchRecurse(array, value, 0, array.length);
+				}
+
+				function binarySearchRecurse(array, value, start, stop) {
+					if (start + 1 >= stop) {
+						return start;
+					}
+
+					let middle = Math.floor((start + stop) / 2);
+
+					if (array[middle] > value) {
+						return binarySearchRecurse(array, value, start, middle);
+					} else {
+						return binarySearchRecurse(array, value, middle, stop);
+					}
+				}
+
 				// Cell rendering functions by type
 				function createBooleanValue(initial, update) {
 					let checkbox = document.createElement('input');
@@ -209,74 +228,23 @@
 					return container;
 				}
 
-				// Basic quad tree implementation
-				function quadTreeBalance(node) {
-					return node; // FIXME: not implemented
-				}
-
-				function quadTreeInsert(node, x, y, value) {
-					if (node === undefined) {
-						return { value: value, x: x, y: y };
-					}
-
-					if (x < node.x) {
-						if (y < node.y) {
-							node.nw = quadTreeInsert(node.nw, x, y, value);
-						} else {
-							node.sw = quadTreeInsert(node.sw, x, y, value);
-						}
-					}
-					else {
-						if (y < node.y) {
-							node.ne = quadTreeInsert(node.ne, x, y, value);
-						} else {
-							node.se = quadTreeInsert(node.se, x, y, value);
-						}
-					}
-
-					return node;
-				}
-
-				function quadTreeSearch(node, x, y) {
-					if (node === undefined) {
-						return undefined;
-					} else if (x < node.x) {
-						if (y < node.y) {
-							return quadTreeSearch(node.nw, x, y);
-						} else {
-							return quadTreeSearch(node.sw, x, y);
-						}
-					}
-					else {
-						if (y < node.y) {
-							return quadTreeSearch(node.ne, x, y);
-						} else {
-							return quadTreeSearch(node.se, x, y) || node;
-						}
-					}
-				}
-
 				// Pivot table definition
 				function pivotCreate(view, grid, table) {
-					// Initialize quad tree with pivot positions
-					let iStop = table.pivot1.length;
-					let jStop = table.pivot2.length;
-					let root = undefined;
+					// Initialize binary search arrays with pivot top-left corner locations
+					let xOffsets = [];
+					let x = 0;
+					let yOffsets = [];
 					let y = 0;
 
-					for (let j = 0; j < jStop; ++j) {
-						let x = 0;
-
-						for (let i = 0; i < iStop; ++i) {
-							root = quadTreeInsert(root, x, y, [i, j]);
-
-							x += table.pivot1[i].width;
-						}
-
-						y += table.pivot2[j].height;
+					for (let i = 0; i < table.pivot1.length; ++i) {
+						xOffsets[i] = x;
+						x += table.pivot1[i].width;
 					}
 
-					root = quadTreeBalance(root);
+					for (let i = 0; i < table.pivot2.length; ++i) {
+						yOffsets[i] = y;
+						y += table.pivot2[i].height;
+					}
 
 					// Clear and resize grid
 					for (let child = grid.lastElementChild; child; child = grid.lastElementChild) {
@@ -287,27 +255,33 @@
 					grid.style.height = table.pivot2.reduce((a, p) => a + p.height, 0);
 
 					// Create cache and run first rendering
-					let cache = pivotRender(view, grid, table, root, {});
+					let pivot = {
+						cellCache: {},
+						xOffsets: xOffsets,
+						yOffsets: yOffsets
+					};
 
-					return () => cache = pivotRender(view, grid, table, root, cache);
+					pivotRender(pivot, view, grid, table);
+
+					return () => pivotRender(pivot, view, grid, table);
 				}
 
-				function pivotRender(view, grid, table, root, cellCache) {
-					let node = quadTreeSearch(root, view.scrollLeft, view.scrollTop);
+				function pivotRender(pivot, view, grid, table) {
+					let iStart = binarySearch(pivot.xOffsets, view.scrollLeft);
+					let jStart = binarySearch(pivot.yOffsets, view.scrollTop);
 
-					if (node === undefined) {
+					if (iStart === undefined || jStart === undefined) {
 						return;
 					}
 
+					let cellCacheCurrent = pivot.cellCache;
 					let cellCacheNext = {};
 					let data = table.data;
-					let iStart = node.value[0];
 					let iStop = table.pivot1.length;
-					let jStart = node.value[1];
 					let jStop = table.pivot2.length;
-					let xStart = node.x;
+					let xStart = pivot.xOffsets[iStart];
 					let xStop = view.scrollLeft + view.clientWidth;
-					let yStart = node.y;
+					let yStart = pivot.yOffsets[jStart];
 					let yStop = view.scrollTop + view.clientHeight;
 
 					for (let j = jStart, y = yStart; j < jStop && y < yStop; y += table.pivot2[j].height, j += 1) {
@@ -316,10 +290,10 @@
 							let value = data[index].value;
 							let cell;
 
-							if (cellCache[index]) {
-								cell = cellCache[index];
+							if (cellCacheCurrent[index]) {
+								cell = cellCacheCurrent[index];
 
-								delete cellCache[index];
+								delete cellCacheCurrent[index];
 							}
 							else {
 								cell = document.createElement('div')
@@ -337,11 +311,11 @@
 					}
 
 					// Remove stale elements from cache and return updated one
-					for (let index in cellCache) {
-						grid.removeChild(cellCache[index]);
+					for (let index in cellCacheCurrent) {
+						grid.removeChild(cellCacheCurrent[index]);
 					}
 
-					return cellCacheNext;
+					pivot.cellCache = cellCacheNext;
 				}
 
 				// Initialize pivot table and attach event listeners
@@ -360,11 +334,7 @@
 
 				function createTable() {
 					let nbColumns = Math.max(Math.min(document.getElementById('nbColumns').value, 100), 0);
-					let nbRows = Math.max(Math.min(document.getElementById('nbRows').value, 10000), 0);
-
-					if (nbColumns * nbRows > 100000 && !confirm('Generating data is going to take a while and hang your browser for a few minutes, are you sure?')) {
-						return { pivot1: [], pivot2: [], data: [] };
-					}
+					let nbRows = Math.max(Math.min(document.getElementById('nbRows').value, 50000), 0);
 
 					return {
 						pivot1: createArray(nbColumns, (index) => ({ label: 'Country #' + index, width: 60 + ~~(Math.random() * 120) })),
